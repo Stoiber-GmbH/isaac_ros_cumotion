@@ -174,25 +174,36 @@ class CumotionRobotSegmenter(Node):
 
         self._cumotion_base_frame = self._cumotion_segmenter.base_link
         self._robot_pose_cameras = None
+        self.__log_once_is_subscribed_flag = False
+        self.__log_once_intrinsics_flag = False
+        self.__log_once_camheader_flag = False
+        self.__log_once_timestamp_flag = False
         self.get_logger().info(f'Node initialized with {self._num_cameras} cameras')
+        for idx in range(self._num_cameras):
+            self.get_logger().info(f'Listening to camera {idx} on topic: {depth_image_topics[idx]}')
 
     def process_depth_and_joint_state(self, *msgs):
+
         self._depth_buffers = []
         self._depth_encoding = []
         self._camera_headers = []
         for msg in msgs:
             if (isinstance(msg, Image)):
+                self._logger.info('Got depth image')
                 img = self.br.imgmsg_to_cv2(msg)
                 if msg.encoding == '32FC1':
                     img = 1000.0 * img
                 self._depth_buffers.append(img)
                 self._camera_headers.append(msg.header)
                 self._depth_encoding.append(msg.encoding)
-            if (isinstance(msg, JointState)):
+            elif (isinstance(msg, JointState)):
                 self._js_buffer = {'joint_names': msg.name, 'position': msg.position}
                 self._timestamp = msg.header.stamp
+            else: 
+                self.get_logger().error(f'Unexpected message type: {type(msg)}')
 
     def camera_info_cb(self, msg, idx):
+        self._logger.info(f'Got camera info for camera {idx}')
         self._depth_intrinsics[idx] = msg.k
 
     def publish_robot_spheres(self, traj: CuJointState):
@@ -240,12 +251,40 @@ class CumotionRobotSegmenter(Node):
         computation_time = -1.0
         node_time = -1.0
 
-        if not self.is_subscribed():
-            return
 
-        if ((not all(isinstance(intrinsic, np.ndarray) for intrinsic in self._depth_intrinsics))
-                or (len(self._camera_headers) == 0) or (self._timestamp is None)):
+        if not self.is_subscribed():
+            # on_timer is called cyclically, but we need to log just once
+            if not self.__log_once_is_subscribed_flag:
+                self.get_logger().info('No subscribers')
+                self.__log_once_is_subscribed_flag = True
             return
+        else:
+            if self.__log_once_is_subscribed_flag:
+                self.get_logger().info('Subscribed')
+                self.__log_once_is_subscribed_flag = False
+
+        if not all(isinstance(intrinsic, np.ndarray) for intrinsic in self._depth_intrinsics):
+            if not self.__log_once_intrinsics_flag:
+                self.get_logger().info('Not all intrinsics are numpy arrays')
+                self.__log_once_intrinsics_flag = True
+            return
+        if len(self._camera_headers) == 0:
+            if not self.__log_once_camheader_flag:
+                self.get_logger().info('No camera headers')
+                self.__log_once_camheader_flag = True
+            return
+        if self._timestamp is None:
+            if not self.__log_once_timestamp_flag:
+                self.get_logger().info('No timestamp')
+                self.__log_once_timestamp_flag = True
+            return
+        else:
+            if self.__log_once_intrinsics_flag:
+                self.get_logger().info('All checks passed')
+                self.__log_once_intrinsics_flag = False
+                self.__log_once_camheader_flag = False
+                self.__log_once_timestamp_flag = False
+
 
         timestamp = self._timestamp
 
