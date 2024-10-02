@@ -7,10 +7,12 @@
 # without an express license agreement from NVIDIA CORPORATION or
 # its affiliates is strictly prohibited.
 
+from os import path
 from copy import deepcopy
 import threading
 import time
 
+from ament_index_python.packages import get_package_share_directory
 from curobo.types.base import TensorDeviceType
 from curobo.types.camera import CameraObservation
 from curobo.types.math import Pose as CuPose
@@ -75,6 +77,10 @@ class CumotionRobotSegmenter(Node):
         self._tf_lookup_duration = (
             self.get_parameter('tf_lookup_duration').get_parameter_value().double_value
         )
+        self.__xrdf_path = path.join(
+            get_package_share_directory('isaac_ros_cumotion_robot_description'), 'xrdf'
+        )
+
         joint_states_topic = (
             self.get_parameter('joint_states_topic').get_parameter_value().string_value)
         debug_robot_topic = (
@@ -151,12 +157,14 @@ class CumotionRobotSegmenter(Node):
         self.lock = threading.Lock()
         self.timer = self.create_timer(0.01, self.on_timer)
 
-        robot_dict = load_yaml(join_path(get_robot_configs_path(), robot_file))
         if robot_file.lower().endswith('.xrdf'):
+            robot_dict = load_yaml(join_path(self.__xrdf_path, robot_file))
             if self.__urdf_path is None:
                 self.get_logger().fatal('urdf_path is required to load robot from .xrdf')
                 raise SystemExit
             robot_dict = convert_xrdf_to_curobo(self.__urdf_path, robot_dict, self.get_logger())
+        else:
+            robot_dict = load_yaml(join_path(get_robot_configs_path(), robot_file))
 
         if self.__urdf_path is not None:
             robot_dict['robot_cfg']['kinematics']['urdf_path'] = self.__urdf_path
